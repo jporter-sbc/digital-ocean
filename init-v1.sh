@@ -18,7 +18,7 @@ log() { echo "[$(date)] $*" | tee -a "$LOG" >/dev/null; }
 # -------------------------
 DOMAIN="${DOMAIN:-pjcard.com}"
 WWW_DOMAIN="${WWW_DOMAIN:-www.${DOMAIN}}"
-ADMIN_EMAIL="${ADMIN_EMAIL:-admin@${DOMAIN}}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-john.porter@securitybuildingcontrols}"
 USER="${APP_USER:-appuser}"
 
 # -------------------------
