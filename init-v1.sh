@@ -1,25 +1,46 @@
 #!/bin/bash
-# init-v1.sh - Reliable base init for DigitalOcean droplets (v1.2)
-# Goals:
-# - Bring up Apache with a real :80 vhost
-# - Deploy a test page
-# - Get Let's Encrypt working automatically when DNS is ready (with retry timer)
-# - Create a non-root sudo user with SSH key from DO metadata
+# init-v1.sh - Reliable base init for DigitalOcean droplets (v1.3)
+# - Apache + test page
+# - Always creates/enables a real :80 vhost (needed for Certbot Apache plugin)
+# - Certbot auto-issues when DNS points at this droplet (via retry timer)
+# - Reads config from env or /etc/default/do-init (written by user-data)
+# - Creates a non-root sudo user + installs DO metadata SSH keys
 
 set -euo pipefail
 
 LOG="/var/log/do-init.log"
-echo "[$(date)] Real init v1.2 started (from GitHub)" > "$LOG"
-
+echo "[$(date)] Real init v1.3 started (from GitHub)" > "$LOG"
 log() { echo "[$(date)] $*" | tee -a "$LOG" >/dev/null; }
 
 # -------------------------
-# Variables (override via env if desired)
+# Load config from /etc/default/do-init if present
 # -------------------------
-DOMAIN="${DOMAIN:-pjcard.com}"
-WWW_DOMAIN="${WWW_DOMAIN:-www.${DOMAIN}}"
-ADMIN_EMAIL="${ADMIN_EMAIL:-john.porter@securitybuildingcontrols}"
+if [[ -f /etc/default/do-init ]]; then
+  # shellcheck disable=SC1091
+  source /etc/default/do-init
+  log "Loaded config from /etc/default/do-init"
+fi
+
+# -------------------------
+# Variables (override via env or /etc/default/do-init)
+# -------------------------
+DOMAIN="${DOMAIN:-}"
+WWW_DOMAIN="${WWW_DOMAIN:-}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-}"
 USER="${APP_USER:-appuser}"
+
+# Hard requirement: DOMAIN and ADMIN_EMAIL
+if [[ -z "${DOMAIN}" ]]; then
+  log "ERROR: DOMAIN is not set. Provide via env or /etc/default/do-init"
+  exit 1
+fi
+if [[ -z "${WWW_DOMAIN}" ]]; then
+  WWW_DOMAIN="www.${DOMAIN}"
+fi
+if [[ -z "${ADMIN_EMAIL}" ]]; then
+  log "ERROR: ADMIN_EMAIL is not set. Provide via env or /etc/default/do-init"
+  exit 1
+fi
 
 # -------------------------
 # Firewall early
@@ -46,10 +67,9 @@ apt-get install -y --no-install-recommends \
 log "Installing Apache + deploying index.html"
 apt-get install -y --no-install-recommends apache2 || { log "Apache install failed"; exit 1; }
 
-# Remove default pages (ignore if absent)
 rm -f /var/www/html/index.nginx-debian.html /var/www/html/index.html || true
 
-cat > /var/www/html/index.html << 'EOF'
+cat > /var/www/html/index.html <<EOF
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -63,7 +83,7 @@ cat > /var/www/html/index.html << 'EOF'
 </head>
 <body>
   <h1>You have reached your Droplet</h1>
-  <p>This is the new DigitalOcean server for pjcard.com</p>
+  <p>This is the DigitalOcean server for ${DOMAIN}</p>
   <p><small>Test page - safe to remove later</small></p>
 </body>
 </html>
@@ -73,12 +93,12 @@ chown www-data:www-data /var/www/html/index.html || true
 chmod 644 /var/www/html/index.html || true
 
 # -------------------------
-# Ensure a real :80 vhost exists for Certbot (CRITICAL)
+# Ensure a real :80 vhost exists (CRITICAL for Certbot)
 # -------------------------
-log "Configuring Apache vhost on :80 for ${DOMAIN} (+ ${WWW_DOMAIN})"
-a2enmod rewrite || true
+log "Configuring Apache :80 vhost for ${DOMAIN} (+ ${WWW_DOMAIN})"
+a2enmod rewrite >/dev/null 2>&1 || true
 
-cat > /etc/apache2/sites-available/${DOMAIN}.http.conf <<EOF
+cat > "/etc/apache2/sites-available/${DOMAIN}.http.conf" <<EOF
 <VirtualHost *:80>
   ServerName ${DOMAIN}
   ServerAlias ${WWW_DOMAIN}
@@ -94,16 +114,20 @@ cat > /etc/apache2/sites-available/${DOMAIN}.http.conf <<EOF
 </VirtualHost>
 EOF
 
-a2ensite "${DOMAIN}.http.conf" || true
-a2ensite 000-default.conf || true   # keep enabled so something always listens on :80
-systemctl enable apache2 || true
+a2ensite "${DOMAIN}.http.conf" >/dev/null 2>&1 || true
+a2ensite 000-default.conf >/dev/null 2>&1 || true  # keep something always listening on :80
+
+systemctl enable apache2 >/dev/null 2>&1 || true
 systemctl restart apache2 || true
 
-# Quick local test
+log "Apache vhosts:"
+apache2ctl -S 2>&1 | tee -a "$LOG" >/dev/null || true
+
+# Local test
 if curl -s http://localhost | grep -q "You have reached your Droplet"; then
-  log "Test page is live (local check OK)"
+  log "HTTP test page OK (local)"
 else
-  log "WARNING: Test page not detected locally"
+  log "WARNING: HTTP test page not detected locally"
 fi
 
 # -------------------------
@@ -111,14 +135,12 @@ fi
 # -------------------------
 log "Installing/refreshing snapd + certbot"
 apt-get install -y snapd || true
+systemctl enable --now snapd.socket >/dev/null 2>&1 || true
+systemctl start snapd >/dev/null 2>&1 || true
 
-# Make sure snapd is actually running before snap install (important in cloud-init)
-systemctl enable --now snapd.socket || true
-systemctl start snapd || true
-
-snap install core || true
-snap refresh core || true
-snap install --classic certbot || true
+snap install core >/dev/null 2>&1 || true
+snap refresh core >/dev/null 2>&1 || true
+snap install --classic certbot >/dev/null 2>&1 || true
 ln -sf /snap/bin/certbot /usr/bin/certbot || true
 
 # -------------------------
@@ -137,7 +159,7 @@ issue_cert() {
   local domains=(-d "$DOMAIN")
   if dns_ok "$WWW_DOMAIN"; then
     domains+=(-d "$WWW_DOMAIN")
-    log "DNS: ${WWW_DOMAIN} resolves correctly; including in cert"
+    log "DNS: ${WWW_DOMAIN} resolves to droplet; including in cert"
   else
     log "DNS: ${WWW_DOMAIN} not ready; issuing cert for apex only"
   fi
@@ -152,9 +174,9 @@ issue_cert() {
 }
 
 # -------------------------
-# Automatic HTTPS bootstrap with retry timer
+# Certbot bootstrap retry timer (automates “DNS later”)
 # -------------------------
-log "Setting up Certbot bootstrap (automatic retry until DNS ready)"
+log "Setting up Certbot bootstrap retry timer"
 
 cat > /usr/local/sbin/certbot-bootstrap.sh <<EOS
 #!/bin/bash
@@ -167,6 +189,10 @@ DOMAIN="${DOMAIN}"
 WWW_DOMAIN="${WWW_DOMAIN}"
 ADMIN_EMAIL="${ADMIN_EMAIL}"
 
+# Ensure deps exist (timer can fire later, but keep it self-healing)
+command -v dig >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y dnsutils) || true
+command -v certbot >/dev/null 2>&1 || exit 1
+
 PUBLIC_IP="\$(curl -s https://api.ipify.org || true)"
 
 dns_ok() {
@@ -176,8 +202,15 @@ dns_ok() {
   [[ -n "\$got" && -n "\$PUBLIC_IP" && "\$got" == "\$PUBLIC_IP" ]]
 }
 
+# Must have apex pointing here first
 if ! dns_ok "\$DOMAIN"; then
   log "Certbot bootstrap: DNS not ready for \$DOMAIN (want \$PUBLIC_IP). Will retry."
+  exit 1
+fi
+
+# Apache must be listening on :80
+if ! ss -lnt | grep -q ':80'; then
+  log "Certbot bootstrap: Apache not listening on :80 yet. Will retry."
   exit 1
 fi
 
@@ -187,7 +220,7 @@ if dns_ok "\$WWW_DOMAIN"; then
 fi
 
 log "Certbot bootstrap: attempting issuance for: \${domains[*]}"
-/usr/bin/certbot --apache -n --agree-tos -m "\$ADMIN_EMAIL" "\${domains[@]}" --redirect --no-eff-email
+certbot --apache -n --agree-tos -m "\$ADMIN_EMAIL" "\${domains[@]}" --redirect --no-eff-email
 
 log "Certbot bootstrap: success. Disabling retry timer."
 systemctl disable --now certbot-bootstrap.timer || true
@@ -223,7 +256,7 @@ EOF
 systemctl daemon-reload
 systemctl enable --now certbot-bootstrap.timer
 
-# Attempt once now (won't fail the whole init if DNS isn't ready)
+# Try once now (won't fail init if DNS isn't ready)
 if dns_ok "$DOMAIN"; then
   log "DNS ready now; attempting Certbot immediately"
   if issue_cert; then
@@ -240,12 +273,11 @@ fi
 # Non-root user
 # -------------------------
 log "Creating non-root user: ${USER}"
-adduser --gecos "" --disabled-password "$USER" || true
-usermod -aG sudo "$USER" || true
+adduser --gecos "" --disabled-password "$USER" >/dev/null 2>&1 || true
+usermod -aG sudo "$USER" >/dev/null 2>&1 || true
 echo "$USER ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$USER" || true
 chmod 0440 "/etc/sudoers.d/$USER" || true
 
-# SSH key from DO metadata (if present)
 log "Installing SSH keys for ${USER} from DO metadata (if available)"
 mkdir -p "/home/$USER/.ssh" || true
 curl -fsS http://169.254.169.254/metadata/v1/public-keys > "/home/$USER/.ssh/authorized_keys" 2>/dev/null || true
@@ -253,5 +285,5 @@ chown -R "$USER:$USER" "/home/$USER/.ssh" || true
 chmod 700 "/home/$USER/.ssh" || true
 chmod 600 "/home/$USER/.ssh/authorized_keys" || true
 
-log "Init v1.2 completed successfully"
+log "Init v1.3 completed successfully"
 date > /var/log/init-complete.txt
