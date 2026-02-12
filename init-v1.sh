@@ -73,6 +73,61 @@ else
     echo "[$(date)] WARNING: Test page not detected locally" >> "$LOG"
 fi
 
+# ────────────────────────────────────────────────
+# Install Certbot & attempt automatic HTTPS (Let's Encrypt)
+# ────────────────────────────────────────────────
+echo "[$(date)] Setting up Certbot & HTTPS" >> "$LOG"
+
+# Install snapd if missing (usually present, but safe)
+apt-get install -y snapd || true
+
+# Classic snap install for Certbot (recommended on Ubuntu 24.04+)
+snap install core || true
+snap refresh core || true
+snap install --classic certbot || true
+
+# Create symlink if needed
+ln -sf /snap/bin/certbot /usr/bin/certbot || true
+
+# Define domain(s) - make dynamic later via tags/metadata
+DOMAIN="pjcard.com"                  # ← CHANGE THIS or make dynamic
+WWW_DOMAIN="www.${DOMAIN}"           # optional
+ADMIN_EMAIL="admin@${DOMAIN}"        # ← CHANGE THIS (used for renewal notices)
+
+# Attempt non-interactive cert issuance + Apache config + redirect
+# --non-interactive       : no prompts
+# --agree-tos             : accept terms
+# --email                 : for expiry/renewal emails
+# --domains               : the domains to cover
+# --apache                : auto-configures Apache vhost + redirect
+# --redirect              : force HTTP → HTTPS (default behavior)
+# --no-eff-email          : skip EFF newsletter (optional)
+
+certbot --apache \
+    --non-interactive \
+    --agree-tos \
+    --email "${ADMIN_EMAIL}" \
+    --domains "${DOMAIN}" \
+    --domains "${WWW_DOMAIN}" \
+    --redirect \
+    --no-eff-email \
+    || {
+        echo "[$(date)] Certbot failed (DNS not ready yet? Run manually later: sudo certbot --apache)" >> "$LOG"
+        # No exit here - we don't want to fail the whole script if certbot can't run yet
+    }
+
+# Verify HTTPS locally (optional diagnostic)
+if curl -s -k https://localhost | grep -q "You have reached your Droplet"; then
+    echo "[$(date)] HTTPS test OK (local)" >> "$LOG"
+else
+    echo "[$(date)] HTTPS not active yet (expected if DNS not propagated)" >> "$LOG"
+fi
+
+# Certbot auto-renewal timer is created automatically - verify:
+systemctl list-timers | grep certbot || echo "Certbot timer not found - check snap services" >> "$LOG"
+
+
+
 # Non-root user (run after basics)
 echo "[$(date)] Creating non-root user" >> "$LOG"
 USER="appuser"
