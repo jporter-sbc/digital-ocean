@@ -1,0 +1,23 @@
+#!/bin/bash
+# DO Fetcher v1.1 - pulls real init from GitHub raw (fixed URL + better logging)
+
+set -euo pipefail
+
+SCRIPT_URL="https://raw.githubusercontent.com/jporter-sbc/digital-ocean/main/init-v1.sh"
+LOG="/var/log/fetcher.log"
+
+echo "[$(date)] Fetcher started - pulling $SCRIPT_URL" | tee "$LOG"
+
+apt-get update -qq
+apt-get install -y --no-install-recommends curl ca-certificates
+
+curl -fsSL -o /tmp/real-init.sh "$SCRIPT_URL" >> "$LOG" 2>&1
+chmod +x /tmp/real-init.sh
+
+echo "[$(date)] Executing real script" | tee -a "$LOG"
+bash /tmp/real-init.sh >> "$LOG" 2>&1
+rc=$?
+
+echo "[$(date)] Fetcher done (real script exit: $rc)" | tee -a "$LOG"
+rm -f /tmp/real-init.sh || true
+exit $rc
