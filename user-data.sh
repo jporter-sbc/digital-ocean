@@ -3,7 +3,7 @@
 
 set -e
 
-SCRIPT_URL="https://raw.githubusercontent.com/yourusername/do-droplet-init-scripts/main/init-v1.sh"
+SCRIPT_URL=""
 # ↑ Replace with your actual raw URL
 
 LOG="/var/log/fetcher.log"
