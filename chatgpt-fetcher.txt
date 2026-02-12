@@ -1,15 +1,31 @@
 #!/bin/bash
-# DO Fetcher v1.1 - pulls real init from GitHub raw (fixed URL + better logging)
+# DO Fetcher v1.2 - pulls real init from GitHub raw + passes config
 
 set -euo pipefail
 
 SCRIPT_URL="https://raw.githubusercontent.com/jporter-sbc/digital-ocean/main/init-v1.sh"
 LOG="/var/log/fetcher.log"
 
+# ---- Deployment config (change per droplet) ----
+export DOMAIN="pjcard.com"
+export WWW_DOMAIN="www.pjcard.com"          # optional; init script will only include if DNS is ready
+export ADMIN_EMAIL="john.porter@securitybuildingcontrols.com"
+export APP_USER="appuser"
+# -----------------------------------------------
+
 echo "[$(date)] Fetcher started - pulling $SCRIPT_URL" | tee "$LOG"
 
 apt-get update -qq
 apt-get install -y --no-install-recommends curl ca-certificates
+
+# Persist config for later troubleshooting / manual reruns
+cat > /etc/default/do-init <<EOF
+DOMAIN="$DOMAIN"
+WWW_DOMAIN="$WWW_DOMAIN"
+ADMIN_EMAIL="$ADMIN_EMAIL"
+APP_USER="$APP_USER"
+EOF
+chmod 0644 /etc/default/do-init
 
 curl -fsSL -o /tmp/real-init.sh "$SCRIPT_URL" >> "$LOG" 2>&1
 chmod +x /tmp/real-init.sh
@@ -21,3 +37,4 @@ rc=$?
 echo "[$(date)] Fetcher done (real script exit: $rc)" | tee -a "$LOG"
 rm -f /tmp/real-init.sh || true
 exit $rc
+
