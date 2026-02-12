@@ -92,7 +92,7 @@ ln -sf /snap/bin/certbot /usr/bin/certbot || true
 # Define domain(s) - make dynamic later via tags/metadata
 DOMAIN="pjcard.com"                  # ← CHANGE THIS or make dynamic
 WWW_DOMAIN="www.${DOMAIN}"           # optional
-ADMIN_EMAIL="admin@${DOMAIN}"        # ← CHANGE THIS (used for renewal notices)
+ADMIN_EMAIL="john.porter@securitybuildingcontrols.com"        # ← CHANGE THIS (used for renewal notices)
 
 # Attempt non-interactive cert issuance + Apache config + redirect
 # --non-interactive       : no prompts
