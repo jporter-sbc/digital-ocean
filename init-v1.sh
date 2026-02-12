@@ -73,5 +73,21 @@ else
     echo "[$(date)] WARNING: Test page not detected locally" >> "$LOG"
 fi
 
+# Non-root user (run after basics)
+echo "[$(date)] Creating non-root user" >> "$LOG"
+USER="appuser"
+adduser --gecos "" --disabled-password "$USER" || true
+usermod -aG sudo "$USER" || true
+echo "$USER ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$USER" || true
+chmod 0440 "/etc/sudoers.d/$USER" || true
+
+# Copy your SSH public key to the new user (fetch from metadata or hard-code for now)
+mkdir -p /home/$USER/.ssh || true
+curl -s http://169.254.169.254/metadata/v1/public-keys > /home/$USER/.ssh/authorized_keys || true
+chown -R $USER:$USER /home/$USER/.ssh || true
+chmod 700 /home/$USER/.ssh || true
+chmod 600 /home/$USER/.ssh/authorized_keys || true
+
+
 echo "[$(date)] Init v1 completed successfully" >> "$LOG"
 date > /var/log/init-complete.txt
