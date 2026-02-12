@@ -3,8 +3,7 @@
 
 set -e
 
-SCRIPT_URL=""
-# ↑ Replace with your actual raw URL
+SCRIPT_URL="https://raw.githubusercontent.com/jporter-sbc/digital-ocean/refs/heads/main/init-v1.sh"
 
 LOG="/var/log/fetcher.log"
 echo "[$(date)] Fetcher started - pulling $SCRIPT_URL" > "$LOG"
