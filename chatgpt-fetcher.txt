@@ -22,13 +22,17 @@ apt-get update -qq
 apt-get install -y --no-install-recommends curl ca-certificates
 
 # Persist config for later troubleshooting / manual reruns
+umask 077
 cat > /etc/default/do-init <<EOF
 DOMAIN="$DOMAIN"
 WWW_DOMAIN="$WWW_DOMAIN"
 ADMIN_EMAIL="$ADMIN_EMAIL"
 APP_USER="$APP_USER"
+FLOATING_IP="$FLOATING_IP"
+DO_API_TOKEN="$DO_API_TOKEN"
 EOF
-chmod 0644 /etc/default/do-init
+chmod 0600 /etc/default/do-init
+
 
 curl -fsSL -o /tmp/real-init.sh "$SCRIPT_URL" >> "$LOG" 2>&1
 chmod +x /tmp/real-init.sh
