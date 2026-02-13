@@ -7,6 +7,9 @@ SCRIPT_URL="https://raw.githubusercontent.com/jporter-sbc/digital-ocean/main/ini
 LOG="/var/log/fetcher.log"
 
 # ---- Deployment config (change per droplet) ----
+export FLOATING_IP="134.199.245.253"
+export DO_API_TOKEN="dop_v1_f991747e0f490c8ee4f418c131b74fcd610b76c816e871e3830b31937da08eda"
+
 export DOMAIN="pjcard.com"
 export WWW_DOMAIN="www.pjcard.com"          # optional; init script will only include if DNS is ready
 export ADMIN_EMAIL="john.porter@securitybuildingcontrols.com"
