@@ -174,14 +174,19 @@ ln -sf /snap/bin/certbot /usr/bin/certbot || true
 # -------------------------
 # DNS readiness helpers
 # -------------------------
-PUBLIC_IP="$(curl -s https://api.ipify.org || true)"
+EXPECTED_IP="${FLOATING_IP:-}"
+if [[ -z "$EXPECTED_IP" ]]; then
+  EXPECTED_IP="$(curl -s https://api.ipify.org || true)"
+fi
+log "DNS check EXPECTED_IP=${EXPECTED_IP}"
 
 dns_ok() {
   local name="$1"
   local got
   got="$(dig +short A "$name" | tail -n 1 || true)"
-  [[ -n "$got" && -n "$PUBLIC_IP" && "$got" == "$PUBLIC_IP" ]]
+  [[ -n "$got" && -n "$EXPECTED_IP" && "$got" == "$EXPECTED_IP" ]]
 }
+
 
 issue_cert() {
   local domains=(-d "$DOMAIN")
