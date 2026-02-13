@@ -12,27 +12,6 @@ LOG="/var/log/do-init.log"
 echo "[$(date)] Real init v1.3 started (from GitHub)" > "$LOG"
 log() { echo "[$(date)] $*" | tee -a "$LOG" >/dev/null; }
 
-# --- Floating IP assignment (DigitalOcean Reserved/Floating IP) ---
-# Required env vars:
-#   DO_API_TOKEN   (DigitalOcean API token)
-#   FLOATING_IP    (your Reserved/Floating IP, e.g. "203.0.113.10")
-
-if [[ -n "${DO_API_TOKEN:-}" && -n "${FLOATING_IP:-}" ]]; then
-  DROPLET_ID="$(curl -fsS http://169.254.169.254/metadata/v1/id)"
-  echo "Assigning Floating IP ${FLOATING_IP} to droplet ${DROPLET_ID}" >> /var/log/do-init.log
-
-  curl -fsS -X POST \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer ${DO_API_TOKEN}" \
-    "https://api.digitalocean.com/v2/floating_ips/${FLOATING_IP}/actions" \
-    -d "{\"type\":\"assign\",\"droplet_id\":${DROPLET_ID}}" \
-    >> /var/log/do-init.log 2>&1 || true
-else
-  echo "Floating IP assignment skipped (missing DO_API_TOKEN or FLOATING_IP)" >> /var/log/do-init.log
-fi
-# --- end Floating IP assignment ---
-
-
 # -------------------------
 # Load config from /etc/default/do-init if present
 # -------------------------
@@ -61,6 +40,34 @@ fi
 if [[ -z "${ADMIN_EMAIL}" ]]; then
   log "ERROR: ADMIN_EMAIL is not set. Provide via env or /etc/default/do-init"
   exit 1
+fi
+# -------------------------
+# Floating IP assignment (must happen before certbot)
+# -------------------------
+apt-get update -qq || true
+apt-get install -y --no-install-recommends curl ca-certificates || true
+
+if [[ -n "${DO_API_TOKEN:-}" && -n "${FLOATING_IP:-}" ]]; then
+  DROPLET_ID="$(curl -fsS http://169.254.169.254/metadata/v1/id || true)"
+  log "Assigning Floating IP ${FLOATING_IP} to droplet ${DROPLET_ID}"
+
+  curl -fsS -X POST \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${DO_API_TOKEN}" \
+    "https://api.digitalocean.com/v2/floating_ips/${FLOATING_IP}/actions" \
+    -d "{\"type\":\"assign\",\"droplet_id\":${DROPLET_ID}}" \
+    >> "$LOG" 2>&1 || log "WARNING: Floating IP assignment API call failed"
+
+  # Wait up to ~2 minutes for attachment (prevents certbot/dns race)
+  for _ in {1..24}; do
+    CUR="$(curl -s https://api.ipify.org || true)"
+    [[ "$CUR" == "$FLOATING_IP" ]] && break
+    sleep 5
+  done
+
+  log "Public IP after assignment: $(curl -s https://api.ipify.org || true)"
+else
+  log "Floating IP assignment skipped (missing DO_API_TOKEN or FLOATING_IP)"
 fi
 
 # -------------------------
